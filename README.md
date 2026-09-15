@@ -86,6 +86,14 @@ streamlit run app.py
 That is the whole demo. It is software-only: it runs offline and needs no
 database, no account and no hardware.
 
+The sidebar switches between three views of the same system:
+
+| view | what it is for |
+|---|---|
+| **Analysis dashboard** | Run the pipeline on a demo scenario or on your own recording. The five-act guided walkthrough lives here. |
+| **Evidence record** | What the system has been tested against, and what is explicitly *not* claimed. The differential verdict at the top is produced by running the pipeline on page load, not quoted. |
+| **How it works** | Why one record can produce two verdicts: the two evidence standards side by side, read out of `config.py` rather than restated. |
+
 Other entry points:
 
 ```bash
