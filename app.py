@@ -53,118 +53,189 @@ st.set_page_config(
 
 CSS = """
 <style>
-.block-container { padding-top: 2.2rem; max-width: 1500px; }
-.eg-title { font-size: 2.3rem; font-weight: 700; margin-bottom: 0; line-height: 1.1; }
-.eg-tag { font-size: 1.05rem; color: #2b7fd4; font-weight: 600; margin-top: .1rem; }
-.eg-sub { font-size: 1rem; color: #444; margin-top: .55rem; font-style: italic; }
-.eg-disclaimer {
-  background: #fff6e0; border-left: 4px solid #e6a700; padding: .55rem .85rem;
-  border-radius: 4px; font-size: .88rem; color: #6b4e00; margin: .9rem 0 .4rem 0;
+/* ---------------------------------------------------------------------------
+   Palette.  Every colour below is a token, defined once for the light theme
+   and redefined for dark, so a panel can never end up light-on-light or
+   dark-on-dark.  Streamlit picks its own theme from prefers-color-scheme, so
+   the same signal drives both its chrome and this stylesheet and the two
+   cannot disagree.
+   --------------------------------------------------------------------------- */
+:root {
+  --eg-surface:      #ffffff;
+  --eg-surface-2:    #f6f9fc;
+  --eg-raised:       #ffffff;
+  --eg-ink:          #17242f;
+  --eg-ink-2:        #47596b;
+  --eg-ink-3:        #718496;
+  --eg-rule:         #e4eaf1;
+  --eg-rule-soft:    #eef2f7;
+  --eg-accent:       #2b7fd4;
+  --eg-accent-ink:   #1a5fa8;
+  --eg-accent-soft:  #f0f6fd;
+  --eg-accept:       #157a42;
+  --eg-accept-soft:  #edf7f0;
+  --eg-withhold:     #8a5600;
+  --eg-withhold-ink: #6b4300;
+  --eg-withhold-soft:#fdf7ee;
+  --eg-warn-soft:    #fff8e8;
+  --eg-warn-ink:     #6b4e00;
+  --eg-shadow:       0 1px 2px rgba(23,36,47,.05), 0 6px 18px rgba(23,36,47,.05);
 }
-.eg-card {
-  border: 1px solid #e2e5ea; border-radius: 9px; padding: .85rem 1rem;
-  background: #ffffff; height: 100%;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --eg-surface:      #182029;
+    --eg-surface-2:    #131a22;
+    --eg-raised:       #1c2530;
+    --eg-ink:          #e4ebf2;
+    --eg-ink-2:        #aebccb;
+    --eg-ink-3:        #8496a8;
+    --eg-rule:         #2b3742;
+    --eg-rule-soft:    #232e38;
+    --eg-accent:       #6fb3f0;
+    --eg-accent-ink:   #9ccdf7;
+    --eg-accent-soft:  #16283a;
+    --eg-accept:       #5ec98c;
+    --eg-accept-soft:  #14291e;
+    --eg-withhold:     #e0a758;
+    --eg-withhold-ink: #f0c48c;
+    --eg-withhold-soft:#2a2115;
+    --eg-warn-soft:    #2a2315;
+    --eg-warn-ink:     #e6c98a;
+    --eg-shadow:       0 1px 2px rgba(0,0,0,.35), 0 6px 18px rgba(0,0,0,.28);
+  }
 }
-.eg-card-accept { border-left: 5px solid #1a9850; }
-.eg-card-reject { border-left: 5px solid #d73027; background: #fdf4f4; }
-.eg-card-name { font-size: .82rem; text-transform: uppercase; letter-spacing: .05em;
-  color: #666; font-weight: 600; }
-.eg-card-value { font-size: 1.85rem; font-weight: 700; margin: .18rem 0; color: #10233d;
-  word-break: normal; overflow-wrap: normal; }
-.eg-card-value-rej { font-size: 1.2rem; font-weight: 700; margin: .18rem 0; color: #a01010;
-  word-break: normal; overflow-wrap: normal; hyphens: none; line-height: 1.25; }
-.eg-card-conf { font-size: .88rem; color: #444; }
-.eg-badge { display: inline-block; padding: .12rem .55rem; border-radius: 11px;
-  font-size: .76rem; font-weight: 700; margin-top: .45rem; }
-.eg-badge-a { background: #e3f4e7; color: #12703c; }
-.eg-badge-r { background: #fbe3e2; color: #a01010; }
-.eg-reason { font-size: .82rem; color: #7a1f1f; margin-top: .4rem; line-height: 1.35; }
-.eg-kv { font-size: .9rem; color: #333; }
-.eg-pill { display:inline-block; padding:.15rem .6rem; border-radius:11px;
-  font-size:.8rem; font-weight:700; color:#fff; }
-.eg-checklist { font-size: .78rem; line-height: 1.5; margin-top: .15rem; }
-.eg-ok { color: #12703c; }
-.eg-no { color: #a01010; font-weight: 600; }
 
-/* --- conservative-rejection design language ------------------------------ */
-.eg-principle {
-  border: 1px solid #c9d6e4; border-left: 5px solid #2b7fd4; border-radius: 7px;
-  background: #f5f9fd; padding: .7rem 1rem; margin: .2rem 0 1rem 0;
+.block-container { padding-top: 2.2rem; max-width: 1500px; }
+.eg-title { font-size: 2.3rem; font-weight: 700; margin-bottom: 0; line-height: 1.1;
+  color: var(--eg-ink); letter-spacing: -.01em; }
+.eg-tag { font-size: 1.05rem; color: var(--eg-accent); font-weight: 600; margin-top: .1rem; }
+.eg-sub { font-size: 1rem; color: var(--eg-ink-2); margin-top: .55rem; font-style: italic; }
+.eg-disclaimer {
+  background: var(--eg-warn-soft); border-left: 4px solid #d9a441; padding: .6rem .9rem;
+  border-radius: 0 6px 6px 0; font-size: .88rem; color: var(--eg-warn-ink);
+  margin: .9rem 0 .4rem 0;
 }
-.eg-principle-main { font-size: 1rem; font-weight: 700; color: #123a63; }
-.eg-principle-sub { font-size: .86rem; color: #3d5a78; margin-top: .22rem; }
+
+/* --- measurement cards ---------------------------------------------------- */
+.eg-card {
+  border: 1px solid var(--eg-rule); border-radius: 10px; padding: .9rem 1.05rem;
+  background: var(--eg-raised); height: 100%; box-shadow: var(--eg-shadow);
+}
+.eg-card-accept { border-left: 4px solid var(--eg-accept); }
 /* A refusal is a decision, so it is not styled as an error. */
-.eg-card-reject { border-left: 5px solid #b07000; background: #fffaf2; }
-.eg-badge-r { background: #fdf0d9; color: #8a5600; }
-.eg-card-value-rej { color: #8a5600; letter-spacing: .01em; }
+.eg-card-reject { border-left: 4px solid var(--eg-withhold); background: var(--eg-withhold-soft); }
+.eg-card-name { font-size: .74rem; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--eg-ink-3); font-weight: 600; }
+.eg-card-value { font-size: 1.85rem; font-weight: 700; margin: .2rem 0; color: var(--eg-ink);
+  word-break: normal; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+.eg-card-value-rej { font-size: 1.2rem; font-weight: 700; margin: .2rem 0;
+  color: var(--eg-withhold); word-break: normal; overflow-wrap: normal; hyphens: none;
+  line-height: 1.25; letter-spacing: .01em; }
+.eg-unit { font-size: 1rem; color: var(--eg-ink-3); font-weight: 400; }
+.eg-card-conf { font-size: .86rem; color: var(--eg-ink-2); }
+.eg-badge { display: inline-block; padding: .15rem .6rem; border-radius: 20px;
+  font-size: .72rem; font-weight: 700; margin-top: .5rem; letter-spacing: .03em; }
+.eg-badge-a { background: var(--eg-accept-soft); color: var(--eg-accept); }
+.eg-badge-r { background: var(--eg-surface); color: var(--eg-withhold);
+  border: 1px solid var(--eg-withhold); }
+.eg-reason { font-size: .82rem; color: var(--eg-withhold-ink); margin-top: .4rem; line-height: 1.4; }
+.eg-kv { font-size: .9rem; color: var(--eg-ink-2); }
+.eg-pill { display:inline-block; padding:.15rem .6rem; border-radius:20px;
+  font-size:.78rem; font-weight:700; color:#fff; }
+.eg-checklist { font-size: .78rem; line-height: 1.55; margin-top: .15rem; color: var(--eg-ink-2); }
+.eg-ok { color: var(--eg-accept); }
+.eg-no { color: var(--eg-withhold); font-weight: 600; }
+
+/* --- conservative-rejection design language ------------------------------- */
+.eg-principle {
+  border: 1px solid var(--eg-rule); border-left: 4px solid var(--eg-accent);
+  border-radius: 0 8px 8px 0; background: var(--eg-accent-soft); padding: .8rem 1.05rem;
+  margin: .2rem 0 1rem 0;
+}
+.eg-principle-main { font-size: 1rem; font-weight: 700; color: var(--eg-accent-ink); }
+.eg-principle-sub { font-size: .86rem; color: var(--eg-ink-2); margin-top: .3rem; line-height: 1.55; }
 .eg-whynot {
-  font-size: .8rem; color: #6b4300; margin-top: .45rem; line-height: 1.4;
-  background: #fdf3e2; border-radius: 4px; padding: .35rem .5rem;
+  font-size: .8rem; color: var(--eg-withhold-ink); margin-top: .5rem; line-height: 1.45;
+  background: var(--eg-surface); border: 1px solid var(--eg-rule);
+  border-radius: 5px; padding: .4rem .55rem;
 }
-.eg-whynot b { color: #5a3800; }
+.eg-whynot b { color: var(--eg-withhold); }
+.eg-good-note {
+  font-size: .8rem; color: var(--eg-accept); margin-top: .5rem; line-height: 1.45;
+  background: var(--eg-accept-soft); border-radius: 5px; padding: .4rem .55rem;
+}
 .eg-withheld {
-  font-size: .76rem; color: #63636b; margin-top: .4rem; line-height: 1.35;
-  border: 1px dashed #c8c8d0; border-radius: 4px; padding: .32rem .5rem;
-  background: #fafafb;
+  font-size: .76rem; color: var(--eg-ink-3); margin-top: .45rem; line-height: 1.4;
+  border: 1px dashed var(--eg-rule); border-radius: 5px; padding: .35rem .55rem;
+  background: var(--eg-surface-2);
 }
-.eg-withheld .eg-wv { font-variant-numeric: tabular-nums; color: #4a4a52;
+.eg-withheld .eg-wv { font-variant-numeric: tabular-nums; color: var(--eg-ink-2);
   text-decoration: line-through; font-weight: 600; }
 .eg-verdictbar {
-  display: flex; gap: 1.6rem; flex-wrap: wrap; align-items: baseline;
-  border: 1px solid #e2e5ea; border-radius: 7px; padding: .55rem .9rem;
-  background: #fcfcfd; margin-bottom: .7rem; font-size: .92rem;
+  display: flex; gap: 1.7rem; flex-wrap: wrap; align-items: baseline;
+  border: 1px solid var(--eg-rule); border-radius: 8px; padding: .6rem 1rem;
+  background: var(--eg-surface-2); margin-bottom: .8rem; font-size: .92rem;
 }
-.eg-vb-n { font-size: 1.35rem; font-weight: 700; }
-.eg-vb-a { color: #12703c; }
-.eg-vb-r { color: #8a5600; }
-.eg-vb-lbl { color: #555; }
-.eg-act {
-  border: 1px solid #d8dee6; border-left: 5px solid #2b7fd4; border-radius: 7px;
-  background: #fbfcfe; padding: .7rem 1rem; margin-top: .5rem;
-}
-.eg-act-hd { font-size: .78rem; text-transform: uppercase; letter-spacing: .07em;
-  color: #2b7fd4; font-weight: 700; }
-.eg-act-ttl { font-size: 1.05rem; font-weight: 700; color: #10233d; margin: .1rem 0 .3rem 0; }
-.eg-act-nar { font-size: .9rem; color: #2f3b4a; line-height: 1.5; }
-.eg-act-look { font-size: .82rem; color: #4a5c70; margin-top: .4rem; font-style: italic; }
+.eg-vb-n { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.eg-vb-a { color: var(--eg-accept); }
+.eg-vb-r { color: var(--eg-withhold); }
+.eg-vb-lbl { color: var(--eg-ink-2); }
 
-/* --- evidence record ----------------------------------------------------- */
+/* --- guided walkthrough --------------------------------------------------- */
+.eg-act {
+  border: 1px solid var(--eg-rule); border-left: 4px solid var(--eg-accent);
+  border-radius: 0 8px 8px 0; background: var(--eg-surface-2); padding: .8rem 1.05rem;
+  margin-top: .5rem;
+}
+.eg-act-hd { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--eg-accent); font-weight: 700; }
+.eg-act-ttl { font-size: 1.05rem; font-weight: 700; color: var(--eg-ink);
+  margin: .15rem 0 .35rem 0; }
+.eg-act-nar { font-size: .9rem; color: var(--eg-ink-2); line-height: 1.6; }
+.eg-act-look { font-size: .82rem; color: var(--eg-ink-3); margin-top: .45rem; font-style: italic; }
+
+/* --- evidence record ------------------------------------------------------ */
 .eg-ev-hero {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: .9rem; margin: .4rem 0 .2rem 0;
 }
-.eg-ev-note { font-size: .82rem; color: #667; text-align: center; margin-top: .5rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .03em; }
+.eg-ev-note { font-size: .8rem; color: var(--eg-ink-3); text-align: center;
+  margin-top: .6rem; letter-spacing: .04em; }
 .eg-claim {
-  border: 1px solid #e0cfae; border-left: 5px solid #b07000; background: #fffaf2;
-  border-radius: 7px; padding: .8rem 1rem; margin: 1rem 0; font-size: .89rem;
-  color: #6b4300; line-height: 1.5;
+  border: 1px solid var(--eg-rule); border-left: 4px solid var(--eg-withhold);
+  background: var(--eg-withhold-soft); border-radius: 0 8px 8px 0; padding: .85rem 1.05rem;
+  margin: 1rem 0; font-size: .89rem; color: var(--eg-withhold-ink); line-height: 1.6;
 }
-.eg-claim b { color: #5a3800; }
+.eg-claim b { color: var(--eg-withhold); }
 .eg-stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 1px; background: #e2e5ea; border: 1px solid #e2e5ea; border-radius: 8px;
-  overflow: hidden; margin: .6rem 0 1rem 0; }
-.eg-stat { background: #fff; padding: .85rem 1rem; }
-.eg-stat-n { font-size: 1.6rem; font-weight: 700; line-height: 1.1; color: #10233d;
+  gap: 1px; background: var(--eg-rule); border: 1px solid var(--eg-rule);
+  border-radius: 9px; overflow: hidden; margin: .7rem 0 1.1rem 0; }
+.eg-stat { background: var(--eg-raised); padding: .9rem 1.05rem; }
+.eg-stat-n { font-size: 1.6rem; font-weight: 700; line-height: 1.1; color: var(--eg-ink);
   font-variant-numeric: tabular-nums; }
-.eg-stat-n.good { color: #12703c; }
-.eg-stat-l { font-size: .76rem; color: #667; line-height: 1.35; margin-top: .1rem; }
+.eg-stat-n.good { color: var(--eg-accept); }
+.eg-stat-l { font-size: .76rem; color: var(--eg-ink-3); line-height: 1.4; margin-top: .15rem; }
 .eg-std {
-  border: 1px solid #e2e5ea; border-radius: 8px; padding: .85rem 1rem; background: #fff;
-  height: 100%;
+  border: 1px solid var(--eg-rule); border-radius: 9px; padding: .9rem 1.05rem;
+  background: var(--eg-raised); height: 100%; box-shadow: var(--eg-shadow);
 }
-.eg-std-h { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em;
-  font-weight: 700; margin-bottom: .45rem; }
-.eg-std-t { color: #12703c; }
-.eg-std-m { color: #8a5600; }
-.eg-std li { font-size: .84rem; color: #333; margin-bottom: .18rem; }
+.eg-std-h { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
+  font-weight: 700; margin-bottom: .5rem; }
+.eg-std-t { color: var(--eg-accept); }
+.eg-std-m { color: var(--eg-withhold); }
+.eg-std ul { margin: 0; padding-left: 1.1rem; }
+.eg-std li { font-size: .84rem; color: var(--eg-ink-2); margin-bottom: .2rem; }
+.eg-std-foot { font-size: .8rem; color: var(--eg-ink-3); margin-top: .5rem; }
+.eg-std-foot b { color: var(--eg-ink); }
 .eg-analogy {
-  border-left: 5px solid #2b7fd4; background: #f5f9fd; border-radius: 0 7px 7px 0;
-  padding: .85rem 1.1rem; font-size: .95rem; color: #16324e; line-height: 1.6;
+  border-left: 4px solid var(--eg-accent); background: var(--eg-accent-soft);
+  border-radius: 0 8px 8px 0; padding: .95rem 1.15rem; font-size: .95rem;
+  color: var(--eg-ink-2); line-height: 1.7;
 }
-.eg-sb-stat { font-size: .82rem; color: #333; display: flex; justify-content: space-between;
-  gap: .5rem; padding: .12rem 0; }
-.eg-sb-stat b { font-variant-numeric: tabular-nums; }
+.eg-analogy b { color: var(--eg-ink); }
+.eg-sb-stat { font-size: .82rem; color: var(--eg-ink-2); display: flex;
+  justify-content: space-between; gap: .5rem; padding: .14rem 0; }
+.eg-sb-stat b { font-variant-numeric: tabular-nums; color: var(--eg-ink); }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -329,10 +400,10 @@ def _render_evidence() -> None:
         '<div class="eg-card eg-card-accept">'
         '<div class="eg-card-name">Heart rate</div>'
         '<div class="eg-card-value">' + format(hr.value, "g")
-        + ' <span style="font-size:1rem;color:#666">BPM</span></div>'
+        + ' <span class="eg-unit">BPM</span></div>'
         '<span class="eg-badge eg-badge-a">&#10003; ACCEPTED &mdash; evidence '
         "sufficient</span>"
-        '<div class="eg-whynot" style="background:#eef7f0;color:#12703c">'
+        '<div class="eg-good-note">'
         "Needs <b>timing</b> evidence only. " + str(hr.validated_beats) + " of "
         + str(len(ev.beats)) + " detected beats met that standard.</div></div>"
         '<div class="eg-card eg-card-reject">'
@@ -476,8 +547,7 @@ def _render_mechanism() -> None:
         st.markdown(
             '<div class="eg-std"><div class="eg-std-h ' + css + '">' + title
             + "</div><ul>" + items + "</ul>"
-            '<div style="font-size:.8rem;color:#555;margin-top:.4rem">'
-            + footer + "</div></div>",
+            '<div class="eg-std-foot">' + footer + "</div></div>",
             unsafe_allow_html=True,
         )
 
@@ -1114,7 +1184,7 @@ for col, m in zip(cards, result.measurements):
     with col:
         value_html = (
             f'<div class="eg-card-value">{m.value:g} '
-            f'<span style="font-size:1rem;color:#666">{m.unit}</span></div>'
+            f'<span class="eg-unit">{m.unit}</span></div>'
             if accepted
             else '<div class="eg-card-value-rej">NOT REPORTED</div>'
         )
@@ -1127,7 +1197,7 @@ for col, m in zip(cards, result.measurements):
         conf_html = (
             f'<div class="eg-card-conf">{m.confidence:.0%} confidence</div>'
             if accepted
-            else '<div class="eg-card-conf" style="color:#7a6a50">'
+            else '<div class="eg-card-conf" style="color:var(--eg-withhold-ink)">'
                  f"evidence score {m.confidence:.0%} — below what this "
                  "measurement requires</div>"
         )

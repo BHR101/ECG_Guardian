@@ -29,12 +29,37 @@ TRUST_COLORS: dict[str, str] = {
 
 ARTIFACT_FILL = "rgba(215, 48, 39, 0.13)"
 
+# Figures are drawn on a transparent ground so they sit on whatever the page is
+# painted in.  Streamlit follows the viewer's light/dark preference, and a solid
+# white plot panel punched into a dark page is what made the dashboard hard to
+# read.  Axis, grid and label colours are therefore semi-transparent greys that
+# resolve against either background, and the data colours below clear both.
+_AXIS_TEXT = "#8494a5"
+_GRID = "rgba(132, 148, 165, 0.20)"
+_AXIS_LINE = "rgba(132, 148, 165, 0.38)"
+
+# Only keys that no call site also passes -- a figure supplying its own legend
+# or subplot axes must not collide with these.
 _LAYOUT = dict(
     template="plotly_white",
     margin=dict(l=55, r=20, t=40, b=40),
     hovermode="x unified",
-    font=dict(size=12),
+    font=dict(size=12, color=_AXIS_TEXT),
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
 )
+
+
+def _theme_axes(fig: go.Figure) -> go.Figure:
+    """Apply the neutral axis palette across every subplot, then return it."""
+    fig.update_xaxes(gridcolor=_GRID, zerolinecolor=_GRID, linecolor=_AXIS_LINE,
+                     tickfont=dict(color=_AXIS_TEXT),
+                     title_font=dict(color=_AXIS_TEXT))
+    fig.update_yaxes(gridcolor=_GRID, zerolinecolor=_GRID, linecolor=_AXIS_LINE,
+                     tickfont=dict(color=_AXIS_TEXT),
+                     title_font=dict(color=_AXIS_TEXT))
+    fig.update_layout(legend=dict(font=dict(color=_AXIS_TEXT)))
+    return fig
 
 
 def signal_figure(result: PipelineResult) -> go.Figure:
@@ -51,14 +76,14 @@ def signal_figure(result: PipelineResult) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=t, y=result.record.signal, name="raw",
-            line=dict(color="#555555", width=1),
+            line=dict(color="#8494a5", width=1),
         ),
         row=1, col=1,
     )
     fig.add_trace(
         go.Scatter(
             x=t, y=result.processed_signal, name="processed",
-            line=dict(color="#1f4e8c", width=1),
+            line=dict(color="#4a9ae0", width=1),
         ),
         row=2, col=1,
     )
@@ -74,7 +99,7 @@ def signal_figure(result: PipelineResult) -> go.Figure:
         fig.add_annotation(
             x=0.5 * (det.start + det.end), y=1.0, yref="paper",
             text=det.label, showarrow=False,
-            font=dict(size=10, color="#a01010"), yanchor="bottom",
+            font=dict(size=10, color="#d1683f"), yanchor="bottom",
         )
 
     # Validated and rejected beats, from the heart-rate gate.
@@ -111,7 +136,7 @@ def signal_figure(result: PipelineResult) -> go.Figure:
     fig.update_yaxes(title_text="mV", row=1, col=1)
     fig.update_yaxes(title_text="mV", row=2, col=1)
     fig.update_xaxes(title_text="time (s)", row=2, col=1)
-    return fig
+    return _theme_axes(fig)
 
 
 def trust_map_figure(result: PipelineResult) -> go.Figure:
@@ -146,7 +171,7 @@ def trust_map_figure(result: PipelineResult) -> go.Figure:
     )
     fig.update_xaxes(title_text="time (s)", range=[0, result.record.duration])
     fig.update_yaxes(showticklabels=False)
-    return fig
+    return _theme_axes(fig)
 
 
 def quality_timeline_figure(result: PipelineResult) -> go.Figure:
@@ -170,14 +195,14 @@ def quality_timeline_figure(result: PipelineResult) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=raw.centers, y=raw.scores, name="before recovery",
-            line=dict(color="#888888", width=2, dash="dot"),
+            line=dict(color="#8494a5", width=2, dash="dot"),
         )
     )
     if proc is not raw:
         fig.add_trace(
             go.Scatter(
                 x=proc.centers, y=proc.scores, name="after recovery",
-                line=dict(color="#1f4e8c", width=2),
+                line=dict(color="#4a9ae0", width=2),
             )
         )
 
@@ -193,7 +218,7 @@ def quality_timeline_figure(result: PipelineResult) -> go.Figure:
     fig.update_layout(height=280, legend=dict(orientation="h", y=-0.22), **_LAYOUT)
     fig.update_xaxes(title_text="time (s)", range=[0, result.record.duration])
     fig.update_yaxes(title_text="Prototype Signal Quality Index", range=[0, 103])
-    return fig
+    return _theme_axes(fig)
 
 
 def evidence_chain_figure(measurement: MeasurementResult) -> go.Figure:
@@ -231,7 +256,7 @@ def evidence_chain_figure(measurement: MeasurementResult) -> go.Figure:
     fig.update_layout(height=230, legend=dict(orientation="h", y=-0.28), **_LAYOUT)
     fig.update_xaxes(title_text="time (s)")
     fig.update_yaxes(title_text="local quality", range=[-4, 104])
-    return fig
+    return _theme_axes(fig)
 
 
 def quality_factor_figure(result: PipelineResult) -> go.Figure:
@@ -243,20 +268,20 @@ def quality_factor_figure(result: PipelineResult) -> go.Figure:
     fig.add_trace(
         go.Bar(
             y=labels, x=[pens[k] for k in pens], orientation="h",
-            name="before recovery", marker=dict(color="#bbbbbb"),
+            name="before recovery", marker=dict(color="#8494a5"),
         )
     )
     fig.add_trace(
         go.Bar(
             y=labels, x=[after.get(k, 0.0) for k in pens], orientation="h",
-            name="after recovery", marker=dict(color="#1f4e8c"),
+            name="after recovery", marker=dict(color="#4a9ae0"),
         )
     )
     fig.update_layout(
         height=300, barmode="group", legend=dict(orientation="h", y=-0.2), **_LAYOUT
     )
     fig.update_xaxes(title_text="mean points deducted (0 = no problem found)")
-    return fig
+    return _theme_axes(fig)
 
 
 def confidence_breakdown_figure(measurement: MeasurementResult) -> go.Figure:
@@ -281,4 +306,4 @@ def confidence_breakdown_figure(measurement: MeasurementResult) -> go.Figure:
     )
     fig.update_layout(height=190, showlegend=False, **_LAYOUT)
     fig.update_xaxes(title_text="contribution to confidence", range=[0, 0.55])
-    return fig
+    return _theme_axes(fig)
