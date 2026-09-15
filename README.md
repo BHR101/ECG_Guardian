@@ -32,6 +32,14 @@ HEART RATE          QRS DURATION
 Both of those come from the same 30-second record, in the same run. You can
 reproduce them: choose *Muscle noise (mild degradation)* in the dashboard.
 
+**NOT REPORTED is a decision, not a failure.** Where a gate refuses, the
+dashboard names the specific criterion that failed and shows — struck through,
+so it can be read but never mistaken for a result — the number the arithmetic
+actually produced. On the severely corrupted scenario that withheld value is
+72.5 BPM: close to the true rate, and entirely plausible-looking. It is
+withheld anyway, because the evidence behind it did not survive. False
+precision is worse than missing information.
+
 ## What is and is not claimed as novel
 
 Signal-quality assessment, band-pass filtering, notch filtering, Pan-Tompkins
@@ -81,11 +89,67 @@ database, no account and no hardware.
 Other entry points:
 
 ```bash
-python -m pytest tests/ -q          # 191 tests
-python -m src.validation            # validation report, measured live
-python tools/adversarial_run.py     # the full adversarial corpus
-python tools/final_review.py        # the project's own review checklist
+python -m pytest tests/ -q             # 233 tests
+python -m src.validation               # validation report, measured live
+python tools/adversarial_run.py        # the full adversarial corpus
+python tools/final_review.py           # the project's own review checklist
+python tools/demo_flow.py              # the five-act walkthrough, headless
+python tools/make_sample_uploads.py    # example files for the upload panel
+python tools/real_data_evaluation.py   # real-ECG evaluation (dataset optional)
 ```
+
+## Analysing your own recording
+
+The dashboard's **Upload a recording** mode runs your own ECG through the same
+pipeline as the demo scenarios — same thresholds, same evidence gates, same
+willingness to report nothing.
+
+| format | extension | carries its own sampling rate |
+|---|---|---|
+| Delimited text | `.csv` `.tsv` `.txt` | only via a time column |
+| European Data Format | `.edf` (EDF / EDF+) | yes |
+| WFDB / PhysioNet | `.hea` **and** `.dat` together (formats 16, 61, 80, 212) | yes |
+| MATLAB | `.mat` (v7.2 and older) | if it stores `fs` |
+| NumPy | `.npy` `.npz` | no |
+
+Multi-column text and multi-channel EDF/WFDB are read in full and you pick the
+lead. The EDF and WFDB readers are written out in `src/ingest.py`; no new
+dependency was added for either.
+
+Two refusals are deliberate, and they exist for the same reason the evidence
+gates do:
+
+- **The sampling rate is never guessed.** It is the one quantity the pipeline
+  is not invariant to — every timing measurement scales linearly with it. A
+  time column is used only when it is strictly increasing *and* uniformly
+  spaced; a file with a gap in it is refused as *"unevenly sampled"* rather
+  than averaged into a plausible-looking wrong rate. Where the file states no
+  rate, you must.
+- **An inverted lead is never silently flipped.** `peaks.py` assumes an upright
+  R wave, so reversed polarity is detected, reported, and left alone, with a
+  switch you set yourself. Lead polarity is something the person who recorded
+  it knows; it is not the software's to assume. Left unflipped, such a record
+  is refused rather than mismeasured
+  (`test_inverted_upload_is_refused_rather_than_mismeasured`).
+
+Amplitude scale and DC offset, by contrast, need no handling at all. Every
+quality feature normalises against a record-level reference, so millivolts,
+microvolts and raw ADC counts give bit-identical verdicts — which is why there
+is deliberately no units control. That invariance was measured before the
+reader was written, not assumed.
+
+```bash
+python tools/make_sample_uploads.py   # writes one example per format
+```
+
+`data/samples/muscle_noise_with_time.csv` is the differential-verdict record
+round-tripped through CSV: heart rate accepted, QRS duration refused.
+
+42 of the 233 tests cover this path. They check that values come back
+*correct*, not merely parsed: a misread gain, rate or packing would produce a
+confident wrong number, which is the one outcome this project exists to avoid.
+
+---
 
 ## Repository layout
 
@@ -98,6 +162,7 @@ ecg-guardian/
 │   ├── config.py           every threshold, in one auditable place
 │   ├── ecg_generator.py    Phase 1  synthetic ECG + ground truth
 │   ├── artifacts.py        Phase 2  controlled artifact injection
+│   ├── ingest.py           read user-supplied ECG files (the other input path)
 │   ├── quality.py          Phase 3  windowed quality index
 │   ├── detection.py        Phase 4  artifact detection / localisation / class
 │   ├── filtering.py        Phase 5+6 recovery AND revalidation
@@ -109,12 +174,15 @@ ecg-guardian/
 │   ├── validation.py       Phase 14 validation, measured live
 │   ├── adversarial.py      adversarial corpus + ground-truth scoring
 │   └── plots.py            Plotly figures
-├── tests/                  191 tests
+├── tests/                  233 tests
 ├── tools/                  diagnostics, not runtime:
 │   ├── final_review.py     answers the project's own review checklist, live
 │   ├── calibrate.py        measured feature values used to set the thresholds
 │   ├── check_*.py          per-stage accuracy against ground truth
 │   ├── adversarial_run.py  run the corpus, report false acceptance
+│   ├── demo_flow.py        the five-act walkthrough, headless
+│   ├── real_data_evaluation.py   independent real-ECG evaluation
+│   ├── make_sample_uploads.py    example files for the upload panel
 │   └── export_demo.py      write scenarios to data/generated/
 └── data/generated/
 ```
@@ -317,6 +385,63 @@ The **evidence-based** measure compares every beat against the same beat in a
 noise-free twin and asks whether the record could have supported the
 measurement at all. Both report zero false acceptances.
 
+### Independent real-ECG evaluation (1000 fragments)
+
+Everything above is measured on records this project generated and corrupted
+itself. That is what makes the ground truth trustworthy, and it is equally the
+limitation: the corruption was injected by the same codebase being tested.
+
+A separate harness answers a narrower question — *does the architecture behave
+sensibly on ECG signals this project did not create?*
+
+```bash
+python tools/real_data_evaluation.py
+```
+
+It runs over [Mendeley Data 7dybx7wyfn v3](https://data.mendeley.com/datasets/7dybx7wyfn/3):
+1000 × 10 s single-lead (MLII) fragments cut from 45 MIT-BIH Arrhythmia
+recordings. The dataset is **optional** — nothing else in the project needs it,
+and the script exits cleanly with download instructions when it is absent.
+
+**What this evaluation cannot claim.** The fragments carry a rhythm/beat class
+per fragment (the folder name) and nothing else — no R-peak annotations, no
+beat timings, no artifact or signal-quality annotations, no reference
+measurements. There is therefore no way to score R-peak sensitivity, heart-rate
+accuracy, QRS accuracy, artifact localisation, or whether any individual
+refusal was correct. Deriving any of those from the ECG itself would mean
+scoring the pipeline against another algorithm's opinion and calling it ground
+truth; the script does not do that, and it prints what it could *not* evaluate
+alongside what it could. The class label is used only to group results for
+reporting — it never enters the pipeline.
+
+**What it does show:**
+
+| | |
+|---|---|
+| Fragments processed / succeeded | 1000 / 1000 |
+| Crashes / caught stage errors | 0 / 0 |
+| Signal quality (raw) | median 99.1, p05 80.9, range 10.6–100.0 |
+| Heart rate accepted | 390 (39.0%) |
+| RR interval accepted | 376 (37.6%) |
+| RR consistency accepted | 429 (42.9%) |
+| QRS duration accepted | 353 (35.3%) |
+| Accepted values outside physiological rails | 0 |
+| Heart rate vs RR interval self-consistency | 359 jointly accepted, max disagreement 0.06 BPM |
+| Determinism (same fragment analysed twice) | identical |
+| Ground-truth isolation, re-proved on real signals | holds |
+
+The result that matters for the thesis: **197 of the 1000 fragments produced
+differing heart-rate and QRS verdicts** — 117 with heart rate accepted and QRS
+refused, 80 the other way round. The two gates decouple on signals this project
+did not create, which is not something a single global quality score can do.
+
+The fragments the dataset labels *AFIB* show it most clearly: QRS duration was
+accepted on 73.3% of them while heart rate was accepted on 24.4%. Morphological
+evidence survives while the RR-consistency criterion declines to report one
+representative rate for an irregular sequence of intervals. That is the gate
+behaving as specified, on a real signal, with no knowledge of the label — and
+it is a statement about evidence, not a clinical finding.
+
 ### Ground-truth isolation
 
 Verified by experiment, not only by inspection (`tests/test_isolation.py`).
@@ -349,11 +474,34 @@ Stated plainly, because a report that hides its failures is worth nothing:
 - **Electrode contact loss at severity 0.4 is classified as baseline wander.**
   At that severity the disturbance genuinely *is* mostly a baseline step with
   the signal still present, and the call is made at low confidence.
+- **On real ECGs the system refuses considerably more often than on synthetic
+  ones.** Heart rate was accepted on 39% of the 1000 fragments, and on only 35%
+  of the normal-sinus ones — despite a median quality of 99.8/100 across the
+  refused group. The cause is characterised rather than guessed: real MLII
+  recordings produce roughly one spurious sub-threshold candidate per beat, so
+  the sensitivity-tuned detector emits about twice as many candidates as there
+  are beats. The evidence engine classifies them correctly — on record 100,
+  all 13 true beats accepted and all 12 spurious ones refused — but
+  `validated beats / detected candidates` then lands at a median of exactly
+  0.50, just under its 0.55 threshold. This is the denominator limitation above,
+  surfacing harder on real morphology than on synthetic. It is not a
+  sampling-rate effect: resampling to 250 Hz reproduces the candidate counts and
+  the verdicts exactly.
+- **Three of the 45 source recordings have inverted R waves in MLII** (107, 108
+  and 217). `peaks.py` assumes an upright R wave and those records sit at 0%
+  acceptance. They fail safe rather than mismeasuring — no implausible value was
+  accepted anywhere in the corpus — but they are not analysed.
+- **10 s fragments are structurally tight.** `HR_MIN_VALID_BEATS` is 8, so a
+  10 s record at 60 BPM offers about 10 beats and very little headroom.
 - QRS duration is a **prototype estimate from a slope-threshold rule**. It is
   internally consistent and reproducible, but it has not been compared against
   any clinical annotation and no clinical meaning is claimed.
-- Everything is single-lead synthetic data. There is no real-patient validation
-  of any kind.
+- **No clinical validation of any kind, and no accuracy claim on real signals.**
+  The architecture is validated on controlled synthetic and adversarial data,
+  where ground truth is known, and separately exercised on 1000 real ECG
+  fragments for robustness. That real-ECG run is a *behaviour* evaluation, not
+  an accuracy benchmark — the dataset carries nothing to score against. All data
+  throughout is single-lead.
 
 ## Demo scenarios
 
@@ -372,6 +520,33 @@ All deterministic, all built from fixed seeds.
 The last two are the pair worth showing together: identical artifact class,
 identical filter, opposite verdict — decided by revalidation rather than by
 assumption.
+
+### The five-act walkthrough
+
+The dashboard's **Guided walkthrough** steps through five of those scenarios in
+an order that tells one story, with narration for each act. The same sequence
+runs in the terminal:
+
+```bash
+python tools/demo_flow.py
+```
+
+| act | scenario | heart rate | QRS duration |
+|---|---|---|---|
+| 1 | Clean ECG | ACCEPTED | ACCEPTED |
+| 2 | Motion artifact (unrecoverable) | ACCEPTED | ACCEPTED |
+| 3 | Motion artifact (recoverable) | ACCEPTED | ACCEPTED |
+| 4 | **Muscle noise** | **ACCEPTED** | **NOT REPORTED** |
+| 5 | Severe corruption | NOT REPORTED | NOT REPORTED |
+
+Acts 2 and 3 are the revalidation pair — same artifact class, opposite
+revalidation outcome. Act 4 is the row where the two columns disagree, which is
+the whole argument. Act 5 is the refusal, with the withheld 72.5 BPM shown as
+withheld.
+
+Every act calls the same `run_pipeline` the dashboard calls. There is no
+demo-only code path and no stored result: if the architecture stopped producing
+the behaviour an act describes, the tool would show it.
 
 ## Language
 
