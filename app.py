@@ -236,6 +236,84 @@ CSS = """
 .eg-sb-stat { font-size: .82rem; color: var(--eg-ink-2); display: flex;
   justify-content: space-between; gap: .5rem; padding: .14rem 0; }
 .eg-sb-stat b { font-variant-numeric: tabular-nums; color: var(--eg-ink); }
+
+/* ---------------------------------------------------------------------------
+   Type.  System stacks on purpose: a webfont would put a network request in
+   the demo path, and this runs offline.  Segoe UI and Cascadia Mono carry
+   Windows, -apple-system and SF Mono carry macOS.
+   --------------------------------------------------------------------------- */
+:root {
+  --eg-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, Roboto,
+             "Helvetica Neue", Arial, sans-serif;
+  --eg-mono: "Cascadia Mono", "SF Mono", "Segoe UI Mono", ui-monospace,
+             Menlo, Consolas, monospace;
+}
+/* Streamlit injects its own emotion stylesheet after this one, so font-family
+   is the one property that needs !important to stick.  Everything else here
+   wins on specificity alone. */
+.block-container, .block-container p, .block-container li,
+[data-testid="stSidebar"] { font-family: var(--eg-sans) !important; }
+.block-container h1, .block-container h2, .block-container h3,
+.eg-title, .eg-tag, .eg-sub, .eg-act-ttl, .eg-principle-main {
+  font-family: var(--eg-sans) !important;
+}
+.block-container h1, .block-container h2, .block-container h3 {
+  letter-spacing: -.012em; text-wrap: balance; color: var(--eg-ink);
+}
+.block-container h2 { font-size: 1.55rem; font-weight: 650; margin-top: .3rem; }
+.block-container h3 { font-size: 1.18rem; font-weight: 650; }
+/* Digits line up in every column they appear in. */
+.eg-card-value, .eg-stat-n, .eg-vb-n, .eg-sb-stat b, .eg-wv,
+[data-testid="stMetricValue"] { font-variant-numeric: tabular-nums; }
+[data-testid="stMetricValue"] { font-family: var(--eg-mono); letter-spacing: -.02em; }
+.eg-card-name, .eg-std-h, .eg-act-hd, .eg-ev-note,
+.eg-card-value, .eg-stat-n, .eg-vb-n, .eg-wv, .eg-sb-stat b {
+  font-family: var(--eg-mono) !important;
+}
+.eg-card-name, .eg-std-h, .eg-act-hd { font-weight: 600; }
+
+/* --- header: an ECG trace as the rule under the title --------------------- */
+.eg-head { margin-bottom: .2rem; }
+.eg-rule-ecg {
+  display: block; width: 100%; height: 30px; color: var(--eg-accent);
+  opacity: .30; margin: .55rem 0 .1rem 0;
+}
+.eg-title { font-weight: 720; }
+
+/* --- quiet refinement ----------------------------------------------------- */
+.eg-card, .eg-std, .eg-stat-row, .eg-verdictbar, .eg-act,
+.eg-principle, .eg-claim, .eg-analogy { border-radius: 9px; }
+.eg-principle, .eg-claim, .eg-analogy, .eg-act { border-radius: 0 9px 9px 0; }
+
+.eg-card, .eg-std {
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.eg-card:hover, .eg-std:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,.06), 0 10px 26px rgba(0,0,0,.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .eg-card, .eg-std { transition: none; }
+  .eg-card:hover, .eg-std:hover { transform: none; }
+}
+
+/* The accepted / withheld distinction reads before any text is parsed. */
+.eg-card-accept { box-shadow: var(--eg-shadow), inset 3px 0 0 -1px transparent; }
+.eg-badge { line-height: 1.5; }
+.eg-vb-lbl { font-size: .88rem; }
+
+/* Streamlit's own chrome, brought into the same palette. */
+.block-container [data-testid="stMetricLabel"] { color: var(--eg-ink-3); }
+.block-container hr { border-color: var(--eg-rule); }
+[data-testid="stSidebar"] hr { border-color: var(--eg-rule); }
+.stTabs [data-baseweb="tab-list"] { gap: .25rem; }
+.stTabs [data-baseweb="tab"] { font-family: var(--eg-sans); }
+
+/* Keyboard focus stays visible -- Streamlit's default ring is easy to lose. */
+.block-container :is(button, [role="radio"], summary):focus-visible,
+[data-testid="stSidebar"] :is(button, [role="radio"]):focus-visible {
+  outline: 2px solid var(--eg-accent); outline-offset: 2px; border-radius: 5px;
+}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -757,11 +835,16 @@ def _upload_panel() -> None:
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.markdown('<div class="eg-title">ECG GUARDIAN</div>', unsafe_allow_html=True)
-st.markdown('<div class="eg-tag">Evidence-Gated ECG Analysis</div>', unsafe_allow_html=True)
+# The rule under the title is a real PQRST trace rather than a line -- the
+# one ornament on the page, and the only one this subject would have.
 st.markdown(
-    '<div class="eg-sub">"Before interpreting an ECG, determine whether the '
-    'evidence is sufficient."</div>',
+    '<div class="eg-head">'
+    '<div class="eg-title">ECG GUARDIAN</div>'
+    '<div class="eg-tag">Evidence-Gated ECG Analysis</div>'
+    '<svg class="eg-rule-ecg" viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M0,28 L28,28 C34,28 38,20 43,20 C48,20 52,28 57,28 L66,28 L69,31 L74,6 L79,34 L84,28 L100,28 C108,28 112,17 120,17 C128,17 132,28 140,28 L178,28 C184,28 188,20 193,20 C198,20 202,28 207,28 L216,28 L219,31 L224,6 L229,34 L234,28 L250,28 C258,28 262,17 270,17 C278,17 282,28 290,28 L328,28 C334,28 338,20 343,20 C348,20 352,28 357,28 L366,28 L369,31 L374,6 L379,34 L384,28 L400,28 C408,28 412,17 420,17 C428,17 432,28 440,28 L478,28 C484,28 488,20 493,20 C498,20 502,28 507,28 L516,28 L519,31 L524,6 L529,34 L534,28 L550,28 C558,28 562,17 570,17 C578,17 582,28 590,28 L628,28 C634,28 638,20 643,20 C648,20 652,28 657,28 L666,28 L669,31 L674,6 L679,34 L684,28 L700,28 C708,28 712,17 720,17 C728,17 732,28 740,28 L778,28 C784,28 788,20 793,20 C798,20 802,28 807,28 L816,28 L819,31 L824,6 L829,34 L834,28 L850,28 C858,28 862,17 870,17 C878,17 882,28 890,28 L928,28 C934,28 938,20 943,20 C948,20 952,28 957,28 L966,28 L969,31 L974,6 L979,34 L984,28 L1000,28 C1008,28 1012,17 1020,17 C1028,17 1032,28 1040,28 L1078,28 C1084,28 1088,20 1093,20 C1098,20 1102,28 1107,28 L1116,28 L1119,31 L1124,6 L1129,34 L1134,28 L1150,28 C1158,28 1162,17 1170,17 C1178,17 1182,28 1190,28 L1200,28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>'
+    '<div class="eg-sub">"Before interpreting an ECG, determine whether '
+    'the evidence is sufficient."</div>'
+    '</div>',
     unsafe_allow_html=True,
 )
 st.markdown(f'<div class="eg-disclaimer">⚠️ {DISCLAIMER} It does not detect, '
