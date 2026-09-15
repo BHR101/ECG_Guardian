@@ -1,0 +1,18 @@
+# Normalise every text file to LF in the repository.
+#
+# This repo was first populated through the GitHub web uploader, which left a
+# mix of CRLF and LF blobs -- so editing a file on Windows could rewrite every
+# line of it and bury a two-line change in a thousand-line diff.  Declaring the
+# convention here fixes it once: Git stores LF and checks out whatever the
+# platform wants.
+* text=auto eol=lf
+
+# Binary, never touched.
+*.png  binary
+*.jpg  binary
+*.mat  binary
+*.npy  binary
+*.npz  binary
+*.edf  binary
+*.dat  binary
+*.zip  binary
