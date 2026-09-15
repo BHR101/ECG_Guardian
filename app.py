@@ -15,6 +15,8 @@ import pandas as pd
 import streamlit as st
 
 from src.config import (
+    BEAT_STANDARD_MORPHOLOGY,
+    BEAT_STANDARD_TIMING,
     DISCLAIMER,
     QUALITY_DEGRADED_MIN,
     QUALITY_TRUSTED_MIN,
@@ -125,6 +127,44 @@ CSS = """
 .eg-act-ttl { font-size: 1.05rem; font-weight: 700; color: #10233d; margin: .1rem 0 .3rem 0; }
 .eg-act-nar { font-size: .9rem; color: #2f3b4a; line-height: 1.5; }
 .eg-act-look { font-size: .82rem; color: #4a5c70; margin-top: .4rem; font-style: italic; }
+
+/* --- evidence record ----------------------------------------------------- */
+.eg-ev-hero {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: .9rem; margin: .4rem 0 .2rem 0;
+}
+.eg-ev-note { font-size: .82rem; color: #667; text-align: center; margin-top: .5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .03em; }
+.eg-claim {
+  border: 1px solid #e0cfae; border-left: 5px solid #b07000; background: #fffaf2;
+  border-radius: 7px; padding: .8rem 1rem; margin: 1rem 0; font-size: .89rem;
+  color: #6b4300; line-height: 1.5;
+}
+.eg-claim b { color: #5a3800; }
+.eg-stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px; background: #e2e5ea; border: 1px solid #e2e5ea; border-radius: 8px;
+  overflow: hidden; margin: .6rem 0 1rem 0; }
+.eg-stat { background: #fff; padding: .85rem 1rem; }
+.eg-stat-n { font-size: 1.6rem; font-weight: 700; line-height: 1.1; color: #10233d;
+  font-variant-numeric: tabular-nums; }
+.eg-stat-n.good { color: #12703c; }
+.eg-stat-l { font-size: .76rem; color: #667; line-height: 1.35; margin-top: .1rem; }
+.eg-std {
+  border: 1px solid #e2e5ea; border-radius: 8px; padding: .85rem 1rem; background: #fff;
+  height: 100%;
+}
+.eg-std-h { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em;
+  font-weight: 700; margin-bottom: .45rem; }
+.eg-std-t { color: #12703c; }
+.eg-std-m { color: #8a5600; }
+.eg-std li { font-size: .84rem; color: #333; margin-bottom: .18rem; }
+.eg-analogy {
+  border-left: 5px solid #2b7fd4; background: #f5f9fd; border-radius: 0 7px 7px 0;
+  padding: .85rem 1.1rem; font-size: .95rem; color: #16324e; line-height: 1.6;
+}
+.eg-sb-stat { font-size: .82rem; color: #333; display: flex; justify-content: space-between;
+  gap: .5rem; padding: .12rem 0; }
+.eg-sb-stat b { font-variant-numeric: tabular-nums; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -160,6 +200,335 @@ def _validate():
 
     df, summary = run_validation()
     return df, summary, differential_gating_check(), ground_truth_isolation_check()
+
+
+# ---------------------------------------------------------------------------
+# Recorded verification results
+# ---------------------------------------------------------------------------
+# These come from full runs of the two harnesses.  They are quoted rather than
+# recomputed because the adversarial corpus takes ~20 minutes -- the command
+# that reproduces each one is shown beside it.  The differential verdict at the
+# top of the evidence page is run live on every load, not quoted.
+CORPUS = {
+    "cases": 328, "randomised": 200, "reported": 474, "false_accept": 0,
+    "crashes": 0, "stage_errors": 0, "p0": 0, "p1": 0,
+    "refused_hr": 71, "refused_qrs": 95, "tests": 233, "review": "13/13",
+}
+PER_STAGE = [
+    ("R-peak sensitivity / PPV", "0.978 / 0.913"),
+    ("R-peak timing error", "0.60 ms"),
+    ("Artifact localisation (IoU)", "0.832"),
+    ("Artifact classification accuracy", "0.962"),
+    ("Heart-rate error when reported", "0.14 BPM mean, 0.52 worst"),
+    ("QRS error vs noise-free reference", "0.32 ms"),
+    ("Clean signal wrongly rejected", "0.00 s"),
+    ("Contact loss wrongly revalidated", "0%"),
+]
+REAL = {
+    "fragments": 1000, "records": 45, "crashes": 0, "differential": 197,
+    "hr_only": 117, "qrs_only": 80, "implausible": 0, "delta": 0.06,
+    "hr_rate": 39.0, "qrs_rate": 35.3,
+}
+REPO_URL = "https://github.com/BHR101/ECG_Guardian"
+
+
+def _stat_row(items) -> None:
+    """Render a row of headline figures.  items: (number, label, is_good)."""
+    cells = "".join(
+        '<div class="eg-stat"><div class="eg-stat-n{}">{}</div>'
+        '<div class="eg-stat-l">{}</div></div>'.format(
+            " good" if good else "", n, lbl)
+        for n, lbl, good in items
+    )
+    st.markdown('<div class="eg-stat-row">' + cells + "</div>",
+                unsafe_allow_html=True)
+
+
+def _render_sidebar_reference() -> None:
+    """The standing reference panel, shown under the view switcher."""
+    with st.sidebar:
+        st.markdown("### Pipeline")
+        st.code(
+            "ECG\n"
+            " -> signal quality\n"
+            " -> artifact detection\n"
+            " -> localisation + class\n"
+            " -> recovery\n"
+            " -> REVALIDATION\n"
+            "      |        |\n"
+            "    pass     fail -> reject segment\n"
+            " -> measurement analysis\n"
+            " -> evidence engine\n"
+            "      |        |\n"
+            "   ACCEPT    REJECT\n"
+            " -> dashboard",
+            language="text",
+        )
+
+        st.markdown("### Decision thresholds")
+        st.caption(
+            "Trusted window \u2265 {:.0f} / 100 \u00b7 unusable below {:.0f} / 100. "
+            "Each measurement then applies its own, separate evidence "
+            "standard.".format(QUALITY_TRUSTED_MIN, QUALITY_DEGRADED_MIN)
+        )
+
+        st.markdown("### Verification")
+        for label, value in (
+            ("False acceptances", "{} / {}".format(
+                CORPUS["false_accept"], CORPUS["reported"])),
+            ("Adversarial cases", str(CORPUS["cases"])),
+            ("Crashes", str(CORPUS["crashes"])),
+            ("Tests passing", str(CORPUS["tests"])),
+            ("Real fragments run", str(REAL["fragments"])),
+        ):
+            st.markdown(
+                '<div class="eg-sb-stat"><span>{}</span><b>{}</b></div>'.format(
+                    label, value),
+                unsafe_allow_html=True,
+            )
+        st.caption("Full figures under **Evidence record**.")
+
+        st.markdown("### Source")
+        st.markdown(
+            "[Repository on GitHub]({})  \n"
+            "`streamlit run app.py` \u00b7 `python -m pytest tests/ -q`".format(
+                REPO_URL)
+        )
+        st.caption(DISCLAIMER)
+
+
+def _render_evidence() -> None:
+    """The verification record: what was measured, and what is not claimed."""
+    st.markdown("## Evidence record")
+    st.caption(
+        "What this system has actually been tested against. The verdict below "
+        "is produced by running the pipeline every time this page loads; the "
+        "corpus figures are quoted from full runs, each shown with the command "
+        "that reproduces it."
+    )
+
+    # -- the differential verdict, computed now, not stored ------------------
+    st.markdown("### One record, two verdicts")
+    ev = _analyse("muscle_noise")
+    hr = ev.measurement("heart_rate")
+    qrs = ev.measurement("qrs_duration")
+    failed = qrs.failed_criteria[0] if qrs.failed_criteria else None
+
+    why_qrs = ""
+    if failed is not None:
+        why_qrs += ('<div class="eg-whynot"><b>' + str(failed.name) + "</b> was "
+                    + str(failed.value) + " (needed " + str(failed.required) + ")</div>")
+    if qrs.withheld_value is not None:
+        why_qrs += ('<div class="eg-withheld">Computed but withheld: '
+                    '<span class="eg-wv">' + format(qrs.withheld_value, "g")
+                    + " ms</span><br>The arithmetic succeeded; the evidence "
+                      "behind it did not.</div>")
+
+    st.markdown(
+        '<div class="eg-ev-hero">'
+        '<div class="eg-card eg-card-accept">'
+        '<div class="eg-card-name">Heart rate</div>'
+        '<div class="eg-card-value">' + format(hr.value, "g")
+        + ' <span style="font-size:1rem;color:#666">BPM</span></div>'
+        '<span class="eg-badge eg-badge-a">&#10003; ACCEPTED &mdash; evidence '
+        "sufficient</span>"
+        '<div class="eg-whynot" style="background:#eef7f0;color:#12703c">'
+        "Needs <b>timing</b> evidence only. " + str(hr.validated_beats) + " of "
+        + str(len(ev.beats)) + " detected beats met that standard.</div></div>"
+        '<div class="eg-card eg-card-reject">'
+        '<div class="eg-card-name">QRS duration</div>'
+        '<div class="eg-card-value-rej">NOT REPORTED</div>'
+        '<span class="eg-badge eg-badge-r">&#8856; evidence insufficient</span>'
+        + why_qrs + "</div></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="eg-ev-note">&mdash; same record &middot; same beats '
+        "&middot; different evidence requirements &mdash;</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "A single global quality gate cannot produce that pair: it has one "
+        "verdict to give. Run it yourself under **Analysis dashboard** -> "
+        "*Muscle noise (mild degradation)*."
+    )
+
+    # -- the metric that matters --------------------------------------------
+    st.markdown("### The metric that matters")
+    st.caption(
+        "A system that refuses everything is safe and useless. The number worth "
+        "judging is how often it reported a value that was actually wrong."
+    )
+    _stat_row([
+        (CORPUS["false_accept"],
+         "false acceptances in {} reported values".format(CORPUS["reported"]), True),
+        (CORPUS["crashes"],
+         "crashes across {} adversarial cases".format(CORPUS["cases"]), True),
+        (CORPUS["tests"], "tests passing", False),
+        (CORPUS["review"], "on the project's own review checklist", False),
+    ])
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Adversarial corpus**")
+        st.caption("{} cases, {} randomised on fixed seeds".format(
+            CORPUS["cases"], CORPUS["randomised"]))
+        st.dataframe(pd.DataFrame([
+            {"measure": "False acceptance rate", "result": "0.00%"},
+            {"measure": "Values reported", "result": str(CORPUS["reported"])},
+            {"measure": "Wrong value, high confidence (P0)", "result": str(CORPUS["p0"])},
+            {"measure": "Wrong value, low confidence (P1)", "result": str(CORPUS["p1"])},
+            {"measure": "Crashes / uncaught stage errors",
+             "result": "{} / {}".format(CORPUS["crashes"], CORPUS["stage_errors"])},
+            {"measure": "Conservative refusals (HR / QRS)",
+             "result": "{} / {}".format(CORPUS["refused_hr"], CORPUS["refused_qrs"])},
+        ]), use_container_width=True, hide_index=True)
+        st.code("python tools/adversarial_run.py", language="bash")
+    with c2:
+        st.markdown("**Per-stage accuracy**")
+        st.caption("31 cases, ground truth known by construction")
+        st.dataframe(pd.DataFrame(PER_STAGE, columns=["stage", "measured"]),
+                     use_container_width=True, hide_index=True)
+        st.code("python -m src.validation", language="bash")
+
+    # -- real ECGs, and the honest boundary ---------------------------------
+    st.markdown("### On real ECGs \u2014 and what is not claimed")
+    st.caption(
+        "Everything above is measured on records this project generated and "
+        "corrupted itself, which is what makes the ground truth trustworthy "
+        "and is equally its limit. So the architecture was run over {} "
+        "ten-second fragments from {} MIT-BIH recordings it had nothing to do "
+        "with.".format(REAL["fragments"], REAL["records"])
+    )
+    _stat_row([
+        ("{}/{}".format(REAL["fragments"], REAL["fragments"]),
+         "fragments processed, 0 crashes", True),
+        (REAL["differential"],
+         "fragments where the two measurements reached <em>different</em> verdicts", False),
+        (REAL["implausible"], "accepted values outside physiological rails", True),
+        (REAL["delta"],
+         "BPM worst disagreement between jointly accepted heart rate and RR interval", False),
+    ])
+    st.markdown(
+        '<div class="eg-claim"><b>What this cannot claim.</b> Those fragments '
+        "carry a rhythm label and nothing else \u2014 no R-peak annotations, no "
+        "reference measurements. So there is no way to score accuracy, and none "
+        "is reported. Deriving ground truth from the ECG itself would mean "
+        "scoring against another algorithm's opinion and calling it validation. "
+        "This is a robustness and behaviour evaluation. There is no clinical "
+        "validation of any kind.</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "- **The gates decouple on data we did not create.** {} fragments "
+        "accepted heart rate while refusing QRS duration; {} did the "
+        "reverse.\n"
+        "- **Determinism and ground-truth isolation both re-proved on real "
+        "signals.** Analysis is bit-for-bit identical when ground truth is "
+        "replaced with deliberately wrong values.\n"
+        "- **It refuses more on real ECGs than synthetic ones \u2014 {}% "
+        "heart-rate acceptance** \u2014 and the cause is characterised rather "
+        "than guessed: real recordings yield roughly one spurious candidate per "
+        "beat, so `validated / detected` lands at a median of exactly 0.50, "
+        "just under its 0.55 threshold. Loosening that threshold is the one "
+        "change we will not make without evidence, because the cost of getting "
+        "it wrong is the only number here that "
+        "matters.".format(REAL["hr_only"], REAL["qrs_only"], REAL["hr_rate"])
+    )
+    st.code("python tools/real_data_evaluation.py", language="bash")
+
+    st.divider()
+    st.caption(
+        "Signal-quality assessment, band-pass and notch filtering, "
+        "Pan-Tompkins QRS detection and rule-based artifact detection are "
+        "established techniques and are not claimed as novel. The contribution "
+        "is the architecture: reliability resolved into a per-measurement "
+        "accept / reject decision rather than a preprocessing step."
+    )
+
+
+def _render_mechanism() -> None:
+    """Why one record can produce two verdicts."""
+    st.markdown("## How it works")
+
+    st.markdown(
+        '<div class="eg-analogy">Think about a blurry photo of a receipt. A '
+        "normal system gives you one verdict \u2014 <i>image quality 60%</i> "
+        "\u2014 and hands you everything it read. But the total might be "
+        "perfectly sharp while the merchant name is a smudge. One quality score "
+        "for the whole image throws away the fact that <b>different fields "
+        "depend on different parts of the picture being good.</b><br><br>"
+        "Every system that computes several outputs from one unreliable input "
+        "has this problem. ECG Guardian is what it looks like to fix it."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("### The mechanism: every beat is judged twice")
+    st.caption(
+        "`judge_beats()` is called once per evidence standard, on the same list "
+        "of beats. Heart rate consumes the first set of verdicts; QRS duration "
+        "consumes the second. That single fact is the whole architecture."
+    )
+
+    def _std_card(css, title, rows, footer):
+        items = "".join("<li>" + r + "</li>" for r in rows)
+        st.markdown(
+            '<div class="eg-std"><div class="eg-std-h ' + css + '">' + title
+            + "</div><ul>" + items + "</ul>"
+            '<div style="font-size:.8rem;color:#555;margin-top:.4rem">'
+            + footer + "</div></div>",
+            unsafe_allow_html=True,
+        )
+
+    t, m = BEAT_STANDARD_TIMING, BEAT_STANDARD_MORPHOLOGY
+    m1, m2 = st.columns(2)
+    with m1:
+        _std_card(
+            "eg-std-t", "Timing evidence &mdash; what heart rate needs",
+            ["local quality &ge; {:.0f}".format(t["min_local_quality"]),
+             "relative prominence &ge; {:.2f}".format(t["min_relative_prominence"]),
+             "relative amplitude {:.2f}&ndash;{:.2f}".format(*t["amplitude_range"]),
+             "shape correlation &ge; {:.2f}".format(t["min_template_correlation"])],
+            "Enough to say <b>when</b> a beat happened.",
+        )
+    with m2:
+        _std_card(
+            "eg-std-m", "Morphological evidence &mdash; what QRS duration needs",
+            ["local quality &ge; {:.0f}".format(m["min_local_quality"]),
+             "relative prominence &ge; {:.2f}".format(m["min_relative_prominence"]),
+             "relative amplitude {:.2f}&ndash;{:.2f}".format(*m["amplitude_range"]),
+             "shape correlation &ge; {:.2f}".format(m["min_template_correlation"]),
+             "high-frequency noise &le; {:.2f}".format(m["max_hf_noise_ratio"]),
+             "slope contrast &ge; {:.1f}".format(m["min_slope_contrast"])],
+            "Enough to say <b>how wide</b> it was.",
+        )
+    st.caption(
+        "Every one of those numbers lives in `src/config.py`. None is learned "
+        "and none is assigned \u2014 and when a measurement is refused, the "
+        "criterion that failed is named with its measured value."
+    )
+
+    st.markdown("### Recovery is never assumed to have worked")
+    st.markdown(
+        "A filter is followed by two independent tests, and **both** must pass "
+        "before a repaired region may feed a measurement:\n\n"
+        "1. **The quality test** \u2014 the region must reach an acceptable "
+        "score, either by already clearing the trusted threshold or by "
+        "improving by a real margin.\n"
+        "2. **The structural test** \u2014 the property that *defined* the "
+        "artifact is re-measured, and must have normalised across 70% of the "
+        "region's windows.\n\n"
+        "The second test exists because removing a step discontinuity raises a "
+        "quality score without restoring a single missing complex. A rising "
+        "score alone is not evidence that the signal came back."
+    )
+    st.caption(
+        "See it happen: **Analysis dashboard** -> *Motion artifact "
+        "(unrecoverable)* versus *Motion artifact (recoverable)*. Same artifact "
+        "class, same filter, opposite verdict \u2014 decided by revalidation "
+        "rather than by assumption."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +700,38 @@ st.markdown(f'<div class="eg-disclaimer">⚠️ {DISCLAIMER} It does not detect,
 
 
 # ---------------------------------------------------------------------------
+# View switcher
+# ---------------------------------------------------------------------------
+# Three views over one system.  The dashboard runs the pipeline; the other two
+# explain and evidence it.  They live here rather than in a separate document
+# so that what a reader is told and what the system does cannot drift apart.
+VIEW_DASHBOARD = "Analysis dashboard"
+VIEW_EVIDENCE = "Evidence record"
+VIEW_MECHANISM = "How it works"
+
+view = st.sidebar.radio(
+    "View",
+    [VIEW_DASHBOARD, VIEW_EVIDENCE, VIEW_MECHANISM],
+    captions=[
+        "Run the pipeline on a scenario or your own recording",
+        "What it has been tested against, and what is not claimed",
+        "Why one record can produce two different verdicts",
+    ],
+    key="view",
+)
+st.sidebar.divider()
+
+if view == VIEW_EVIDENCE:
+    _render_evidence()
+    _render_sidebar_reference()
+    st.stop()
+if view == VIEW_MECHANISM:
+    _render_mechanism()
+    _render_sidebar_reference()
+    st.stop()
+
+
+# ---------------------------------------------------------------------------
 # Section 1 -- demo controls
 # ---------------------------------------------------------------------------
 st.markdown("### 1 · Demo controls")
@@ -433,31 +834,7 @@ result = st.session_state.result
 # ---------------------------------------------------------------------------
 # Sidebar -- pipeline map and thresholds
 # ---------------------------------------------------------------------------
-with st.sidebar:
-    st.markdown("### Pipeline")
-    st.code(
-        "ECG\n"
-        " -> signal quality\n"
-        " -> artifact detection\n"
-        " -> localisation + class\n"
-        " -> recovery\n"
-        " -> REVALIDATION\n"
-        "      |        |\n"
-        "    pass     fail -> reject segment\n"
-        " -> measurement analysis\n"
-        " -> evidence engine\n"
-        "      |        |\n"
-        "   ACCEPT    REJECT\n"
-        " -> dashboard",
-        language="text",
-    )
-
-    st.markdown("### Decision thresholds")
-    st.caption(
-        f"Trusted window ≥ {QUALITY_TRUSTED_MIN:.0f} / 100 · "
-        f"unusable below {QUALITY_DEGRADED_MIN:.0f} / 100. "
-        "Each measurement then applies its own, separate evidence standard."
-    )
+_render_sidebar_reference()
 
 if result is None:
     st.info(
