@@ -192,6 +192,108 @@ SCENARIOS: list[Scenario] = [
     ),
 ]
 
+# ---------------------------------------------------------------------------
+# The guided walkthrough
+# ---------------------------------------------------------------------------
+# Five acts that tell one story, in order.  Every act names an existing
+# scenario -- there is no separate demo path, no stored result and no bypass:
+# running an act runs the same ``run_pipeline`` call the dashboard always runs.
+# The narration describes what to look at; the numbers come from the pipeline.
+@dataclass
+class DemoAct:
+    """One step of the guided walkthrough."""
+
+    number: int
+    title: str
+    scenario_key: str
+    narration: str
+    look_at: str          # where on the dashboard the point is visible
+
+    @property
+    def scenario(self) -> Scenario:
+        return SCENARIOS_BY_KEY[self.scenario_key]
+
+
+DEMO_FLOW: list[DemoAct] = [
+    DemoAct(
+        number=1,
+        title="Clean ECG — evidence is sufficient",
+        scenario_key="clean",
+        narration=(
+            "This is a clean recording. The evidence supports both timing and "
+            "morphology measurements, so every measurement is reported."
+        ),
+        look_at="Measurements: all four accepted, with the criteria each one met.",
+    ),
+    DemoAct(
+        number=2,
+        title="Corrupted ECG — locating the unreliable evidence",
+        scenario_key="motion_unrecoverable",
+        narration=(
+            "Now the signal is corrupted. Instead of blindly filtering and "
+            "trusting the result, we identify where the evidence has become "
+            "unreliable. The disturbance is localised to its own span, and that "
+            "span is labelled — not silently smoothed into the rest."
+        ),
+        look_at=(
+            "Artifact intelligence: the localised region. Trust map: that span "
+            "is rejected while the rest of the record stays usable."
+        ),
+    ),
+    DemoAct(
+        number=3,
+        title="Recovery and mandatory revalidation",
+        scenario_key="motion_recoverable",
+        narration=(
+            "Recovery is not considered successful just because filtering was "
+            "applied. The artifact-defining property is checked again. This is "
+            "the same artifact class as Act 2 at a lower severity: here "
+            "revalidation passes and the region is allowed forward, whereas in "
+            "Act 2 the score rose but revalidation still refused it. That "
+            "contrast is the point — revalidation is not a rubber stamp."
+        ),
+        look_at=(
+            "Recovery and revalidation: the two independent tests, and the "
+            "region's before/after verdict."
+        ),
+    ),
+    DemoAct(
+        number=4,
+        title="One ECG, two different verdicts",
+        scenario_key="muscle_noise",
+        narration=(
+            "This is the key idea. We do not ask whether the ECG is simply "
+            "'good' or 'bad'. We ask whether there is enough evidence for each "
+            "measurement. Heart rate only needs reliable timing evidence, so it "
+            "can be accepted. QRS duration depends on morphology that is not "
+            "sufficiently reliable here, so it is deliberately not reported — "
+            "from the very same beats."
+        ),
+        look_at=(
+            "Measurements: heart rate ACCEPTED, QRS duration NOT REPORTED, on "
+            "one record. A single global quality gate cannot produce that."
+        ),
+    ),
+    DemoAct(
+        number=5,
+        title="Severe corruption — the correct output is no report",
+        scenario_key="severe",
+        narration=(
+            "When the evidence cannot be recovered, the correct output is not a "
+            "confident-looking number. It is no report. The arithmetic still "
+            "produces a value here; the system withholds it because the "
+            "evidence behind it did not survive."
+        ),
+        look_at=(
+            "Measurements: every measurement NOT REPORTED, each naming the "
+            "criterion that failed, with the withheld value shown as withheld."
+        ),
+    ),
+]
+
+DEMO_FLOW_BY_NUMBER: dict[int, DemoAct] = {a.number: a for a in DEMO_FLOW}
+
+
 SCENARIOS_BY_KEY: dict[str, Scenario] = {s.key: s for s in SCENARIOS}
 SCENARIO_NAMES: list[str] = [s.name for s in SCENARIOS]
 

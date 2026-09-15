@@ -22,8 +22,15 @@ from src.config import (
     TRUST_REJECTED,
     TRUST_TRUSTED,
 )
-from src.demo import SCENARIOS, scenario_by_name
+from src.demo import DEMO_FLOW, SCENARIOS, scenario_by_name
 from src.evidence import ACCEPTED
+from src.ingest import (
+    SUPPORTED_SUFFIXES,
+    IngestError,
+    load_recording,
+    looks_inverted,
+    to_ecg_record,
+)
 from src.pipeline import run_pipeline
 from src.plots import (
     TRUST_COLORS,
@@ -76,6 +83,48 @@ CSS = """
 .eg-checklist { font-size: .78rem; line-height: 1.5; margin-top: .15rem; }
 .eg-ok { color: #12703c; }
 .eg-no { color: #a01010; font-weight: 600; }
+
+/* --- conservative-rejection design language ------------------------------ */
+.eg-principle {
+  border: 1px solid #c9d6e4; border-left: 5px solid #2b7fd4; border-radius: 7px;
+  background: #f5f9fd; padding: .7rem 1rem; margin: .2rem 0 1rem 0;
+}
+.eg-principle-main { font-size: 1rem; font-weight: 700; color: #123a63; }
+.eg-principle-sub { font-size: .86rem; color: #3d5a78; margin-top: .22rem; }
+/* A refusal is a decision, so it is not styled as an error. */
+.eg-card-reject { border-left: 5px solid #b07000; background: #fffaf2; }
+.eg-badge-r { background: #fdf0d9; color: #8a5600; }
+.eg-card-value-rej { color: #8a5600; letter-spacing: .01em; }
+.eg-whynot {
+  font-size: .8rem; color: #6b4300; margin-top: .45rem; line-height: 1.4;
+  background: #fdf3e2; border-radius: 4px; padding: .35rem .5rem;
+}
+.eg-whynot b { color: #5a3800; }
+.eg-withheld {
+  font-size: .76rem; color: #63636b; margin-top: .4rem; line-height: 1.35;
+  border: 1px dashed #c8c8d0; border-radius: 4px; padding: .32rem .5rem;
+  background: #fafafb;
+}
+.eg-withheld .eg-wv { font-variant-numeric: tabular-nums; color: #4a4a52;
+  text-decoration: line-through; font-weight: 600; }
+.eg-verdictbar {
+  display: flex; gap: 1.6rem; flex-wrap: wrap; align-items: baseline;
+  border: 1px solid #e2e5ea; border-radius: 7px; padding: .55rem .9rem;
+  background: #fcfcfd; margin-bottom: .7rem; font-size: .92rem;
+}
+.eg-vb-n { font-size: 1.35rem; font-weight: 700; }
+.eg-vb-a { color: #12703c; }
+.eg-vb-r { color: #8a5600; }
+.eg-vb-lbl { color: #555; }
+.eg-act {
+  border: 1px solid #d8dee6; border-left: 5px solid #2b7fd4; border-radius: 7px;
+  background: #fbfcfe; padding: .7rem 1rem; margin-top: .5rem;
+}
+.eg-act-hd { font-size: .78rem; text-transform: uppercase; letter-spacing: .07em;
+  color: #2b7fd4; font-weight: 700; }
+.eg-act-ttl { font-size: 1.05rem; font-weight: 700; color: #10233d; margin: .1rem 0 .3rem 0; }
+.eg-act-nar { font-size: .9rem; color: #2f3b4a; line-height: 1.5; }
+.eg-act-look { font-size: .82rem; color: #4a5c70; margin-top: .4rem; font-style: italic; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -88,6 +137,8 @@ if "result" not in st.session_state:
     st.session_state.result = None
 if "scenario_name" not in st.session_state:
     st.session_state.scenario_name = SCENARIOS[0].name
+if "act" not in st.session_state:
+    st.session_state.act = 0          # 0 = free choice, 1..5 = guided walkthrough
 
 
 @st.cache_data(show_spinner=False)
@@ -112,6 +163,159 @@ def _validate():
 
 
 # ---------------------------------------------------------------------------
+# Upload panel
+# ---------------------------------------------------------------------------
+# An uploaded recording is turned into the same ECGRecord the generator makes
+# and handed to the same run_pipeline call.  Nothing here relaxes a gate, and
+# nothing here supplies ground truth -- an uploaded record has none.
+UPLOAD_HELP = """
+**Supported formats**
+
+| Format | Extension | Carries its own sampling rate |
+|---|---|---|
+| Delimited text | `.csv` `.tsv` `.txt` | only via a time column |
+| European Data Format | `.edf` (EDF / EDF+) | yes |
+| WFDB / PhysioNet | `.hea` **and** `.dat` together | yes |
+| MATLAB | `.mat` (v7.2 and older) | if it stores `fs` |
+| NumPy | `.npy` `.npz` | no |
+
+Multi-column text and multi-channel EDF/WFDB are read in full and you pick the
+lead. A time column is detected by name (`time`, `t`, `ms`, …) or by being a
+strictly increasing first column, and is used to derive the rate.
+
+**The sampling rate is never guessed.** If the file does not state one, you
+must, because every timing measurement scales directly with it.
+"""
+
+
+def _upload_panel() -> None:
+    st.caption(
+        "Analyse your own recording. It runs through the identical pipeline "
+        "the demo scenarios use — same thresholds, same evidence gates, same "
+        "willingness to report nothing."
+    )
+    with st.expander("Which formats can I upload?"):
+        st.markdown(UPLOAD_HELP)
+
+    st.info(
+        "**Prototype software, not a medical device.** It cannot detect, "
+        "diagnose or rule out any condition, and no output may inform care. "
+        "Please do not upload identifiable patient data — files are processed "
+        "in this session's memory and not stored, but this is a demonstrator, "
+        "not a system approved for clinical data.",
+        icon="⚠️",
+    )
+
+    files = st.file_uploader(
+        "ECG file",
+        type=[x.lstrip(".") for x in SUPPORTED_SUFFIXES],
+        accept_multiple_files=True,
+        help="Upload one file, or both halves of a WFDB record (.hea + .dat).",
+    )
+    if not files:
+        st.session_state.upload_loaded = None
+        return
+
+    # Pair the two halves of a WFDB record; otherwise take the first file.
+    by_suffix = {f.name.rsplit(".", 1)[-1].lower(): f for f in files}
+    primary, companion = files[0], None
+    if "hea" in by_suffix and "dat" in by_suffix:
+        primary = by_suffix["hea"]
+        companion = (by_suffix["dat"].name, by_suffix["dat"].getvalue())
+    elif len(files) > 1:
+        st.caption(f"Using **{primary.name}**; extra files ignored.")
+
+    try:
+        loaded = load_recording(primary.getvalue(), primary.name, companion=companion)
+    except IngestError as exc:
+        st.error(f"Could not read this file — {exc}")
+        return
+    except Exception as exc:  # defensive: a malformed file must not crash the app
+        st.error(f"Could not read this file — unexpected {type(exc).__name__}: {exc}")
+        return
+
+    st.success(
+        f"Read **{loaded.filename}** as {loaded.source_format} — "
+        f"{loaded.n_channels} channel(s), {loaded.n_samples:,} samples."
+    )
+    for note in loaded.notes:
+        st.caption(f"· {note}")
+
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        channel = 0
+        if loaded.n_channels > 1:
+            channel = st.selectbox(
+                "Lead / channel",
+                range(loaded.n_channels),
+                format_func=lambda i: loaded.channel_names[i],
+            )
+        else:
+            st.caption(f"Channel: **{loaded.channel_names[0]}**")
+    with c2:
+        if loaded.sampling_rate:
+            rate = st.number_input(
+                "Sampling rate (Hz)", min_value=10.0, max_value=20000.0,
+                value=float(loaded.sampling_rate), step=1.0,
+                help="Read from the file. Change it only if you know it is wrong.",
+            )
+        else:
+            st.warning("This format carries no sampling rate — you must supply it.",
+                       icon="⚠️")
+            rate = st.number_input(
+                "Sampling rate (Hz)", min_value=10.0, max_value=20000.0,
+                value=250.0, step=1.0,
+                help="Required: every timing measurement scales directly with this.",
+            )
+
+    total = loaded.n_samples / rate if rate else 0.0
+    with c3:
+        st.metric("Recording length", f"{total:.1f} s")
+
+    # Long recordings are analysed in a window, so the demo stays responsive.
+    start = 0.0
+    window = total
+    if total > 60.0:
+        window = float(st.slider("Analysis window (s)", 10.0,
+                                 min(300.0, total), 60.0, step=5.0))
+        start = float(st.slider("Window starts at (s)", 0.0,
+                                max(0.0, total - window), 0.0, step=1.0))
+        st.caption(
+            f"Analysing {start:.0f}–{start + window:.0f} s of a {total:.0f} s "
+            "recording. Move the window to analyse a different stretch."
+        )
+
+    inverted = looks_inverted(loaded.channels[channel])
+    if inverted:
+        st.warning(
+            "**This trace looks inverted** — its dominant deflection is "
+            "downward. The R-peak detector assumes an upright R wave, so an "
+            "inverted lead will be refused rather than mismeasured. Flip it "
+            "only if you know the polarity is reversed; the signal is never "
+            "flipped automatically.",
+            icon="⚠️",
+        )
+    invert = st.checkbox("Invert polarity (this lead was recorded upside down)",
+                         value=False)
+
+    if st.button("▶ Analyse this recording", type="primary"):
+        try:
+            record = to_ecg_record(
+                loaded, channel=channel, sampling_rate=rate, invert=invert,
+                start_sec=start, max_sec=window if total > 60.0 else None,
+            )
+        except IngestError as exc:
+            st.error(f"Cannot analyse this selection — {exc}")
+            return
+        with st.spinner("Running the pipeline..."):
+            st.session_state.result = run_pipeline(
+                record, f"Upload: {loaded.filename}"
+            )
+        st.session_state.act = 0
+        st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
 st.markdown('<div class="eg-title">ECG GUARDIAN</div>', unsafe_allow_html=True)
@@ -130,35 +334,98 @@ st.markdown(f'<div class="eg-disclaimer">⚠️ {DISCLAIMER} It does not detect,
 # Section 1 -- demo controls
 # ---------------------------------------------------------------------------
 st.markdown("### 1 · Demo controls")
-ctrl_left, ctrl_right = st.columns([3, 2])
 
-with ctrl_left:
-    names = [s.name for s in SCENARIOS]
-    scenario_name = st.selectbox(
-        "Scenario",
-        names,
-        index=names.index(st.session_state.scenario_name)
-        if st.session_state.scenario_name in names
-        else 0,
-    )
-    scenario = scenario_by_name(scenario_name)
-    b1, b2 = st.columns(2)
-    run_clicked = b1.button("▶ Run analysis", type="primary", use_container_width=True)
-    reset_clicked = b2.button("↺ Reset", use_container_width=True)
+SOURCE_DEMO = "Demo scenarios"
+SOURCE_UPLOAD = "Upload a recording"
+source = st.radio(
+    "Signal source",
+    [SOURCE_DEMO, SOURCE_UPLOAD],
+    horizontal=True,
+    help="Uploaded recordings go through exactly the same pipeline as the "
+         "demo scenarios. There is no separate path and no relaxed mode.",
+)
 
-with ctrl_right:
-    st.caption(f"**{scenario.description}**")
-    st.caption(f"What this scenario is for: {scenario.expectation}")
+if source == SOURCE_UPLOAD:
+    _upload_panel()
+else:
 
-if reset_clicked:
-    st.session_state.result = None
-    st.session_state.scenario_name = scenario_name
-    st.rerun()
+    # The guided walkthrough is five acts in order.  Each act just selects an
+    # existing scenario and runs the same pipeline the free-choice mode runs --
+    # there is no separate demo path and nothing is pre-computed.
+    n_acts = len(DEMO_FLOW)
+    step_cols = st.columns([1, 1, 4, 1])
+    if step_cols[0].button("◀ Prev", use_container_width=True,
+                           disabled=st.session_state.act <= 1):
+        st.session_state.act = max(1, st.session_state.act - 1)
+        st.session_state.result = None
+        st.rerun()
+    if step_cols[1].button("Next ▶", use_container_width=True,
+                           disabled=st.session_state.act >= n_acts):
+        st.session_state.act = st.session_state.act + 1 if st.session_state.act else 1
+        st.session_state.result = None
+        st.rerun()
+    with step_cols[2]:
+        st.caption(
+            f"**Guided walkthrough** — act {st.session_state.act} of {n_acts}"
+            if st.session_state.act
+            else "**Free choice** — press *Next* to start the five-act walkthrough."
+        )
+    if step_cols[3].button("Free mode", use_container_width=True,
+                           disabled=st.session_state.act == 0):
+        st.session_state.act = 0
+        st.session_state.result = None
+        st.rerun()
 
-if run_clicked:
-    st.session_state.scenario_name = scenario_name
-    with st.spinner("Running the pipeline..."):
-        st.session_state.result = _analyse(scenario.key)
+    act = DEMO_FLOW[st.session_state.act - 1] if st.session_state.act else None
+
+    ctrl_left, ctrl_right = st.columns([3, 2])
+
+    with ctrl_left:
+        names = [s.name for s in SCENARIOS]
+        if act is not None:
+            # In guided mode the act fixes the scenario, so the judge cannot get
+            # lost -- but the scenario is still shown, so nothing is hidden.
+            scenario = act.scenario
+            scenario_name = scenario.name
+            st.selectbox("Scenario", names, index=names.index(scenario_name),
+                         disabled=True, key="guided_scenario")
+        else:
+            scenario_name = st.selectbox(
+                "Scenario",
+                names,
+                index=names.index(st.session_state.scenario_name)
+                if st.session_state.scenario_name in names
+                else 0,
+            )
+            scenario = scenario_by_name(scenario_name)
+        b1, b2 = st.columns(2)
+        run_clicked = b1.button("▶ Run analysis", type="primary", use_container_width=True)
+        reset_clicked = b2.button("↺ Reset", use_container_width=True)
+
+    with ctrl_right:
+        st.caption(f"**{scenario.description}**")
+        st.caption(f"What this scenario is for: {scenario.expectation}")
+
+    if act is not None:
+        st.markdown(
+            f'<div class="eg-act">'
+            f'<div class="eg-act-hd">Act {act.number} of {n_acts}</div>'
+            f'<div class="eg-act-ttl">{act.title}</div>'
+            f'<div class="eg-act-nar">{act.narration}</div>'
+            f'<div class="eg-act-look">Where to look — {act.look_at}</div>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    if reset_clicked:
+        st.session_state.result = None
+        st.session_state.scenario_name = scenario_name
+        st.rerun()
+
+    if run_clicked:
+        st.session_state.scenario_name = scenario_name
+        with st.spinner("Running the pipeline..."):
+            st.session_state.result = _analyse(scenario.key)
 
 result = st.session_state.result
 
@@ -193,7 +460,12 @@ with st.sidebar:
     )
 
 if result is None:
-    st.info("Choose a scenario and press **Run analysis**.")
+    st.info(
+        "Upload a file, set the sampling rate, and press **Analyse this "
+        "recording**."
+        if source == SOURCE_UPLOAD
+        else "Choose a scenario and press **Run analysis**."
+    )
     st.stop()
 
 
@@ -201,6 +473,20 @@ if result is None:
 # Section 2 -- signal overview
 # ---------------------------------------------------------------------------
 st.markdown("### 2 · Signal overview")
+_meta = result.record.metadata
+if _meta.get("source") == "user upload":
+    # Provenance for an uploaded recording, including the fact that there is
+    # no ground truth to check any of this against.
+    st.caption(
+        f"**Uploaded recording** — `{_meta.get('filename', '')}` "
+        f"({_meta.get('format', 'unknown format')}), channel "
+        f"**{_meta.get('channel', '?')}**, "
+        f"{_meta.get('sampling_rate_hz', 0):g} Hz, "
+        f"{result.record.duration:.1f} s"
+        + (", polarity inverted by you" if _meta.get("inverted") else "")
+        + ". No ground truth exists for this recording, so nothing below is "
+        "scored for accuracy — the verdicts are evidence decisions only."
+    )
 st.caption(
     "Shaded spans are the regions the detector localised on its own. Markers on "
     "the processed trace show which beats met the heart-rate evidence standard."
@@ -414,9 +700,35 @@ for note in rec.notes:
 # Section 7 -- measurements
 # ---------------------------------------------------------------------------
 st.markdown("### 7 · Measurements")
-st.caption(
-    "Each measurement is judged against its own evidence standard. That is why "
-    "one record can yield an accepted heart rate and a refused QRS duration."
+
+# The design principle, stated where the verdicts are read.  This is the whole
+# argument of the project in two lines, so it sits above the cards rather than
+# in a footnote.
+st.markdown(
+    '<div class="eg-principle">'
+    '<div class="eg-principle-main">Conservative by design: when evidence is '
+    "insufficient, ECG Guardian does not guess.</div>"
+    '<div class="eg-principle-sub">'
+    "<b>NOT REPORTED is an intentional safety decision, not a system failure.</b> "
+    "False precision is worse than missing information — a number nobody can "
+    "trace back to sufficient evidence is more dangerous than a blank. Each "
+    "measurement is judged against its own evidence standard, which is why one "
+    "record can yield an accepted heart rate and a refused QRS duration."
+    "</div></div>",
+    unsafe_allow_html=True,
+)
+
+_n_acc = sum(1 for m in result.measurements if m.status == ACCEPTED)
+_n_rej = len(result.measurements) - _n_acc
+st.markdown(
+    '<div class="eg-verdictbar">'
+    f'<span><span class="eg-vb-n eg-vb-a">{_n_acc}</span> '
+    '<span class="eg-vb-lbl">reported — evidence sufficient</span></span>'
+    f'<span><span class="eg-vb-n eg-vb-r">{_n_rej}</span> '
+    '<span class="eg-vb-lbl">not reported — evidence insufficient</span></span>'
+    f'<span class="eg-vb-lbl">on one record, from the same beats</span>'
+    "</div>",
+    unsafe_allow_html=True,
 )
 
 cards = st.columns(len(result.measurements))
@@ -430,19 +742,56 @@ for col, m in zip(cards, result.measurements):
             else '<div class="eg-card-value-rej">NOT REPORTED</div>'
         )
         badge = (
-            '<span class="eg-badge eg-badge-a">✓ ACCEPTED</span>'
+            '<span class="eg-badge eg-badge-a">✓ ACCEPTED — evidence sufficient</span>'
             if accepted
-            else '<span class="eg-badge eg-badge-r">✗ REJECTED</span>'
+            else '<span class="eg-badge eg-badge-r">⊘ NOT REPORTED — evidence '
+                 "insufficient</span>"
         )
-        reason = (
-            "" if accepted else f'<div class="eg-reason">{m.reason}</div>'
+        conf_html = (
+            f'<div class="eg-card-conf">{m.confidence:.0%} confidence</div>'
+            if accepted
+            else '<div class="eg-card-conf" style="color:#7a6a50">'
+                 f"evidence score {m.confidence:.0%} — below what this "
+                 "measurement requires</div>"
         )
+
+        # For a refusal, name the specific criteria that failed.  The generic
+        # reason string is the fallback when the shortfall was confidence only.
+        extra = ""
+        if not accepted:
+            failed = m.failed_criteria
+            if failed:
+                items = "".join(
+                    f"<div>· {c.name}: <b>{c.value}</b> "
+                    f"<span style='opacity:.7'>(needed {c.required})</span></div>"
+                    for c in failed[:3]
+                )
+                more = (f"<div style='opacity:.7'>· and {len(failed) - 3} more</div>"
+                        if len(failed) > 3 else "")
+                extra += (f'<div class="eg-whynot"><b>Failed criteria</b>'
+                          f"{items}{more}</div>")
+            else:
+                extra += f'<div class="eg-reason">{m.reason}</div>'
+
+            # The value the arithmetic produced, shown struck through so it can
+            # be seen but never read as a result.  This is the argument made
+            # concrete: a plausible-looking number was available and was
+            # withheld on purpose.
+            if m.withheld_value is not None:
+                extra += (
+                    '<div class="eg-withheld">Computed but withheld: '
+                    f'<span class="eg-wv">{m.withheld_value:g} {m.unit}</span><br>'
+                    "Not a reported result. The arithmetic succeeded; the "
+                    "evidence behind it did not. Reporting it would be precision "
+                    "the signal cannot support."
+                    "</div>"
+                )
         st.markdown(
             f'<div class="eg-card {"eg-card-accept" if accepted else "eg-card-reject"}">'
             f'<div class="eg-card-name">{m.display_name}</div>'
             f"{value_html}"
-            f'<div class="eg-card-conf">{m.confidence:.0%} confidence</div>'
-            f"{badge}{reason}</div>",
+            f"{conf_html}"
+            f"{badge}{extra}</div>",
             unsafe_allow_html=True,
         )
         # The evidence checklist, on the card itself: which specific checks
@@ -492,7 +841,20 @@ for tab, m in zip(tabs, result.measurements):
         for line in m.evidence:
             st.markdown(f'<div class="eg-kv">· {line}</div>', unsafe_allow_html=True)
         if m.status != ACCEPTED:
-            st.error(f"Rejected — {m.reason}")
+            # Framed as a decision, not a failure: st.warning rather than
+            # st.error, and the withheld number shown as withheld.
+            st.warning(
+                f"**NOT REPORTED — evidence insufficient.** {m.reason}  \n\n"
+                "This is the designed outcome, not a fault. Reporting a value "
+                "the evidence does not support would be worse than reporting "
+                "nothing."
+            )
+            if m.withheld_value is not None:
+                st.caption(
+                    f"For audit only — the arithmetic produced "
+                    f"{m.withheld_value:g} {m.unit} before the gate refused it. "
+                    "It is not a reported measurement and must not be used as one."
+                )
 
 
 # ---------------------------------------------------------------------------

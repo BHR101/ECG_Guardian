@@ -8,6 +8,16 @@ venv/
 # Regenerate with: python tools/adversarial_run.py
 data/generated/
 
+# Example upload files, created on demand.
+# Regenerate with: python tools/make_sample_uploads.py
+data/samples/
+
+# Real-ECG evaluation dataset -- downloaded separately, never committed.
+# https://data.mendeley.com/datasets/7dybx7wyfn/3
+7dybx7wyfn-3.zip
+ECG signals (1000 fragments).zip
+data/real/
+
 # Editor and OS metadata
 .vscode/
 .idea/

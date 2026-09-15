@@ -219,12 +219,23 @@ class MeasurementResult:
     beat_verdicts: list[BeatVerdict] = field(default_factory=list)
     evidence_standard: str = ""
     confidence_terms: dict[str, float] = field(default_factory=dict)
+    # What the arithmetic produced before the gate refused it.  Kept for the
+    # audit trail ONLY.  ``value`` stays None and ``status`` stays REJECTED, so
+    # nothing downstream can mistake this for a reportable result -- it exists
+    # so a reader can see that the refusal was a decision about evidence, not a
+    # failure to compute.  Never display it as a measurement.
+    withheld_value: float | None = None
 
     @property
     def display_value(self) -> str:
         if self.status != ACCEPTED or self.value is None:
             return "NOT REPORTED"
         return f"{self.value:g} {self.unit}".strip()
+
+    @property
+    def failed_criteria(self) -> list["Criterion"]:
+        """The specific requirements this measurement did not meet."""
+        return [c for c in self.criteria if not c.passed]
 
     def as_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -255,6 +266,15 @@ def _finalise(
 
     if failed or not conf_ok:
         result.status = REJECTED
+        # Record what was computed, then refuse it.  Keeping the number in a
+        # clearly-named separate field lets the dashboard show *that* a value
+        # existed and was withheld, without ever putting it where a caller
+        # reading ``.value`` could treat it as reported.
+        result.withheld_value = (
+            float(value)
+            if value is not None and np.isfinite(value)
+            else None
+        )
         result.value = None
         if failed:
             result.reason = "; ".join(
