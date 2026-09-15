@@ -5,8 +5,10 @@ __pycache__/
 venv/
 
 # Analysis output, created on demand.
-# Regenerate with: python tools/adversarial_run.py
-data/generated/
+# Regenerate with: python tools/export_demo.py
+#              or: python tools/adversarial_run.py
+data/generated/*
+!data/generated/README.md
 
 # Example upload files, created on demand.
 # Regenerate with: python tools/make_sample_uploads.py
@@ -17,6 +19,9 @@ data/samples/
 7dybx7wyfn-3.zip
 ECG signals (1000 fragments).zip
 data/real/
+
+# Local working notes, not part of the project.
+HANDOFF.md
 
 # Editor and OS metadata
 .vscode/

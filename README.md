@@ -110,15 +110,14 @@ ecg-guardian/
 │   ├── adversarial.py      adversarial corpus + ground-truth scoring
 │   └── plots.py            Plotly figures
 ├── tests/                  191 tests
-└── tools/                  diagnostics and reproduction, not runtime:
-    ├── adversarial_run.py  run the corpus, report false acceptance
-    ├── final_review.py     answers the project's own review checklist, live
-    ├── calibrate.py        measured feature values used to set the thresholds
-    └── check_*.py          per-stage accuracy against ground truth
+├── tools/                  diagnostics, not runtime:
+│   ├── final_review.py     answers the project's own review checklist, live
+│   ├── calibrate.py        measured feature values used to set the thresholds
+│   ├── check_*.py          per-stage accuracy against ground truth
+│   ├── adversarial_run.py  run the corpus, report false acceptance
+│   └── export_demo.py      write scenarios to data/generated/
+└── data/generated/
 ```
-
-Analysis output is written to `data/generated/`, which is created on demand and
-is not tracked.
 
 `detection.py` and `plots.py` are additions to the originally sketched module
 list: keeping artifact *detection* in the same file as artifact *injection*
